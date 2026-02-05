@@ -7,7 +7,7 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-with open('labels.json') as f:
+with open('coco2017/annotations/instances_train2017.json') as f:
     labels_file = json.load(f)
 
 fig, axes = plt.subplots(1, 5, figsize=(25, 6))
@@ -16,7 +16,7 @@ for i, indice in enumerate(indices):
     image_obj = labels_file['images'][indice]
     image_id = image_obj['id']
     annotations = [annotation for annotation in labels_file['annotations'] if annotation['image_id'] == image_id]
-    image = plt.imread(os.path.join('images', image_obj['file_name']))
+    image = plt.imread(os.path.join('coco2017/train2017', image_obj['file_name']))
     axes[i].imshow(image)
     for annotation in annotations:
         x, y, width, height = annotation['bbox'][0], annotation['bbox'][1], annotation['bbox'][2], annotation['bbox'][3]

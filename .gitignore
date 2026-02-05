@@ -1,2 +1,7 @@
 images/
 labels.json
+coco2017/
+archive.zip
+venv/
+models/
+*.json

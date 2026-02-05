@@ -8,9 +8,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import cv2
 import numpy as np
+from numpy import random
+import albumentations as A
 
 class COCODataset(Dataset):
-    def __init__(self, annotation_file, image_dir):
+    def __init__(self, annotation_file, image_dir, train=True):
         with open(annotation_file) as f:
             self.labels_file = json.load(f)
         self.data = []
@@ -30,39 +32,60 @@ class COCODataset(Dataset):
             bbox_label = annotations.get(image_id, [])
             if bbox_label:
                 self.data.append({'file_name': image['file_name'], 'annotations': bbox_label})
+        if train:
+            self.transform = A.Compose([
+                A.HorizontalFlip(p=0.5),
+                A.RandomBrightnessContrast(p=0.3),
+                A.HueSaturationValue(p=0.3),
+                A.GaussianBlur(p=0.2)
+                # A.Affine(
+                #     translate_percent={"x": (-0.0625, 0.0625), "y": (-0.0625, 0.0625)},
+                #     scale=(0.9, 1.1),
+                #     rotate=(-15, 15),
+                #     p=0.3
+                # )
+            ], bbox_params=A.BboxParams(format='coco', label_fields=['labels']))
+        else:
+            self.transform = None
 
     def __len__(self):
         return len(self.data)
     
     def __getitem__(self, index):
+        objectness_grid = torch.zeros(7, 7)
+        class_grid = torch.zeros(7, 7)
+        box_grid = torch.zeros(4, 7, 7)
         target_resize = 224
         img_path = os.path.join(self.image_dir, self.data[index]['file_name'])
         bbox = [bbox for bbox, _ in self.data[index]['annotations']]
-        label =  torch.tensor([label for _, label in self.data[index]['annotations']])
+        label =  [label for _, label in self.data[index]['annotations']]
         img = plt.imread(img_path)
+        if len(img.shape) == 2:
+            img = np.stack([img, img, img], axis=2) 
         y_ = img.shape[0]
         x_ = img.shape[1]
         y_scale = target_resize / y_
         x_scale = target_resize / x_
         scale_tensor = torch.tensor([x_scale, y_scale, x_scale, y_scale])
+        if self.transform:
+            transformed = self.transform(image=img, bboxes=bbox, labels=label)
+            img = transformed['image']
+            bbox = transformed['bboxes']
+        label = torch.tensor(label)
         img = cv2.resize(img, (target_resize, target_resize))
         bbox = torch.tensor(bbox) * scale_tensor
+        for i, box in enumerate(bbox):
+            center_x = box[0] + (box[2] / 2)
+            center_y = box[1] + (box[3] / 2)
+            cell_x = int(center_x // 32)
+            cell_y = int(center_y // 32)
+            top_left_x = cell_x * 32
+            top_left_y = cell_y * 32
+            dx = (center_x - top_left_x) / 32
+            dy = (center_y - top_left_y) / 32
+            objectness_grid[cell_y][cell_x] = 1
+            class_grid[cell_y][cell_x] = label[i]
+            box_grid[:, cell_y, cell_x] = torch.tensor([dx, dy, box[2] / 32, box[3] / 32])
         img = torch.from_numpy(img)
         img = img.permute(2, 0, 1) / 255
-        return img, bbox, label
-
-dataset = COCODataset('labels.json', 'images')
-img, bbox, label = dataset[1458]
-print(img.shape, img.dtype)
-print(bbox.shape, bbox.dtype)
-print(label.shape, label.dtype)
-img = img.permute(1, 2, 0)
-img = img.numpy()
-fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-ax.imshow(img)
-for box in bbox:
-    x, y, width, height = box[0], box[1], box[2], box[3]
-    rect = patches.Rectangle((x, y), width, height, edgecolor='r', facecolor='none')
-    ax.add_patch(rect)
-ax.axis('off')
-plt.show()
+        return img, objectness_grid, class_grid, box_grid
