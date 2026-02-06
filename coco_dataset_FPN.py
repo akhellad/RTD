@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import albumentations as A
 
-class COCODataset(Dataset):
+class COCODatasetFPN(Dataset):
     def __init__(self, annotation_file, image_dir, train=True):
         with open(annotation_file) as f:
             self.labels_file = json.load(f)
@@ -48,9 +48,9 @@ class COCODataset(Dataset):
         return len(self.data)
     
     def __getitem__(self, index):
-        objectness_grid = torch.zeros(7, 7)
-        class_grid = torch.zeros(7, 7)
-        box_grid = torch.zeros(4, 7, 7)
+        objectness_grid_P5, class_grid_P5, box_grid_P5 = torch.zeros(7, 7), torch.zeros(7, 7), torch.zeros(4, 7, 7)
+        objectness_grid_P4, class_grid_P4, box_grid_P4 = torch.zeros(14, 14), torch.zeros(14, 14), torch.zeros(4, 14, 14)
+        objectness_grid_P3, class_grid_P3, box_grid_P3 = torch.zeros(28, 28), torch.zeros(28, 28), torch.zeros(4, 28, 28)
         target_resize = 224
         img_path = os.path.join(self.image_dir, self.data[index]['file_name'])
         bbox = [bbox for bbox, _ in self.data[index]['annotations']]
@@ -70,7 +70,6 @@ class COCODataset(Dataset):
             if w > 1 and h > 1:
                 valid_boxes.append(box)
                 valid_labels.append(label[i])
-
         bbox = valid_boxes
         label = valid_labels
         if self.transform:
@@ -81,22 +80,38 @@ class COCODataset(Dataset):
         if len(bbox) == 0:
             img = cv2.resize(img, (target_resize, target_resize))
             img = torch.from_numpy(img).permute(2, 0, 1) / 255
-            return img, objectness_grid, class_grid, box_grid
+            return img, (objectness_grid_P3, class_grid_P3, box_grid_P3), (objectness_grid_P4, class_grid_P4, box_grid_P4), (objectness_grid_P5, class_grid_P5, box_grid_P5)
         label = torch.tensor(label)
         img = cv2.resize(img, (target_resize, target_resize))
         bbox = torch.tensor(bbox) * scale_tensor
         for i, box in enumerate(bbox):
+            area = box[2] * box[3]
+            if area < 64 * 64:
+                cell_size = 8
+            elif area < 128 * 128:
+                cell_size = 16
+            else:
+                cell_size = 32
             center_x = box[0] + (box[2] / 2)
             center_y = box[1] + (box[3] / 2)
-            cell_x = int(center_x // 32)
-            cell_y = int(center_y // 32)
-            top_left_x = cell_x * 32
-            top_left_y = cell_y * 32
-            dx = (center_x - top_left_x) / 32
-            dy = (center_y - top_left_y) / 32
-            objectness_grid[cell_y][cell_x] = 1
-            class_grid[cell_y][cell_x] = label[i]
-            box_grid[:, cell_y, cell_x] = torch.tensor([dx, dy, box[2] / 32, box[3] / 32])
+            cell_x = int(center_x // cell_size)
+            cell_y = int(center_y // cell_size)
+            top_left_x = cell_x * cell_size
+            top_left_y = cell_y * cell_size
+            dx = (center_x - top_left_x) / cell_size
+            dy = (center_y - top_left_y) / cell_size
+            if cell_size == 8:
+                objectness_grid_P3[cell_y][cell_x] = 1
+                class_grid_P3[cell_y][cell_x] = label[i]
+                box_grid_P3[:, cell_y, cell_x] = torch.tensor([dx, dy, box[2] / cell_size, box[3] / cell_size])
+            elif cell_size == 16:
+                objectness_grid_P4[cell_y][cell_x] = 1
+                class_grid_P4[cell_y][cell_x] = label[i]
+                box_grid_P4[:, cell_y, cell_x] = torch.tensor([dx, dy, box[2] / cell_size, box[3] / cell_size])
+            else:
+                objectness_grid_P5[cell_y][cell_x] = 1
+                class_grid_P5[cell_y][cell_x] = label[i]
+                box_grid_P5[:, cell_y, cell_x] = torch.tensor([dx, dy, box[2] / cell_size, box[3] / cell_size])
         img = torch.from_numpy(img)
         img = img.permute(2, 0, 1) / 255
-        return img, objectness_grid, class_grid, box_grid
+        return img, (objectness_grid_P3, class_grid_P3, box_grid_P3), (objectness_grid_P4, class_grid_P4, box_grid_P4), (objectness_grid_P5, class_grid_P5, box_grid_P5)

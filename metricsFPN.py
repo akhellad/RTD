@@ -1,62 +1,97 @@
 import numpy as np
 
-class DetectionMetrics:
+class DetectionMetricsFPN:
     def __init__(self, num_classes, iou_threshold=0.5):
         self.num_classes = num_classes
         self.iou_threshold = iou_threshold
-    
-    def decode_prediction(self, obj_pred, class_pred, box_pred):
+
+    def _decode_single_scale(self, scale_pred, grid_size, cell_size):
+        obj_pred, class_pred, box_pred = scale_pred
         batch = obj_pred.shape[0]
         all_boxes = []
+        
         for i in range(batch):
             boxes = []
             obj_grid = obj_pred[i]
             class_grid = class_pred[i]
             box_grid = box_pred[i]
-            for j in range(7):
-                for k in range(7):
+            
+            for j in range(grid_size):
+                for k in range(grid_size):
                     objectness = obj_grid[0, j, k]
                     if objectness > 0.2:
                         class_id = np.argmax(class_grid[:, j, k])
                         class_prob = max(class_grid[:, j, k])
                         box = box_grid[:, j, k]
-                        center_x_pixels = (j * 32) + (box[0] * 32)
-                        center_y_pixels = (k * 32) + (box[1] * 32)
-                        width_pixels = box[2] * 32
-                        height_pixels = box[3] * 32
+                        
+                        # Utilise cell_size variable
+                        center_x_pixels = (j * cell_size) + (box[0] * cell_size)
+                        center_y_pixels = (k * cell_size) + (box[1] * cell_size)
+                        width_pixels = box[2] * cell_size
+                        height_pixels = box[3] * cell_size
+                        
                         x1 = center_x_pixels - width_pixels / 2
                         y1 = center_y_pixels - height_pixels / 2
                         x2 = center_x_pixels + width_pixels / 2
                         y2 = center_y_pixels + height_pixels / 2
                         confidence = objectness * class_prob
                         boxes.append([x1.item(), y1.item(), x2.item(), y2.item(), confidence.item(), class_id.item()])
+            
             all_boxes.append(boxes)
         return all_boxes
     
-    def extract_gt_boxes(self, obj_grid, class_grid, box_grid):
+    def decode_prediction_fpn(self, predictions):
+        all_boxes = []
+        boxes_p3 = self._decode_single_scale(predictions[0], grid_size=28, cell_size=8)
+        boxes_p4 = self._decode_single_scale(predictions[1], grid_size=14, cell_size=16)
+        boxes_p5 = self._decode_single_scale(predictions[2], grid_size=7, cell_size=32)
+        batch_size = predictions[0][0].shape[0]
+        for i in range(batch_size):
+            combined = boxes_p3[i] + boxes_p4[i] + boxes_p5[i]
+            all_boxes.append(combined)
+        return all_boxes
+
+    def _extract_single_scale(self, scale_target, grid_size, cell_size):
+        obj_grid, class_grid, box_grid = scale_target
         batch = obj_grid.shape[0]
         all_boxes = []
+        
         for i in range(batch):
             boxes = []
             obj_g = obj_grid[i]
             class_g = class_grid[i]
             box_g = box_grid[i]
-            for j in range(7):
-                for k in range(7):
+            
+            for j in range(grid_size):
+                for k in range(grid_size):
                     objectness = obj_g[j, k]
                     if objectness == 1:
                         class_id = class_g[j, k]
                         box = box_g[:, j, k]
-                        center_x_pixels = (j * 32) + (box[0] * 32)
-                        center_y_pixels = (k * 32) + (box[1] * 32)
-                        width_pixels = box[2] * 32
-                        height_pixels = box[3] * 32
+                        
+                        center_x_pixels = (j * cell_size) + (box[0] * cell_size)
+                        center_y_pixels = (k * cell_size) + (box[1] * cell_size)
+                        width_pixels = box[2] * cell_size
+                        height_pixels = box[3] * cell_size
+                        
                         x1 = center_x_pixels - width_pixels / 2
                         y1 = center_y_pixels - height_pixels / 2
                         x2 = center_x_pixels + width_pixels / 2
                         y2 = center_y_pixels + height_pixels / 2
                         boxes.append([x1.item(), y1.item(), x2.item(), y2.item(), class_id.item()])
+            
             all_boxes.append(boxes)
+        return all_boxes
+    
+    def extract_gt_boxes_fpn(self, targets):
+        boxes_p3 = self._extract_single_scale(targets[0], grid_size=28, cell_size=8)
+        boxes_p4 = self._extract_single_scale(targets[1], grid_size=14, cell_size=16)
+        boxes_p5 = self._extract_single_scale(targets[2], grid_size=7, cell_size=32)
+        batch_size = targets[0][0].shape[0]
+        all_boxes = []
+        for i in range(batch_size):
+            combined = boxes_p3[i] + boxes_p4[i] + boxes_p5[i]
+            all_boxes.append(combined)
         return all_boxes
     
     def calculate_iou(self, box1, box2):
@@ -92,10 +127,8 @@ class DetectionMetrics:
         return result
 
     def compute_map(self, pred_boxes, gt_boxes):
-        obj_preds, class_preds, box_preds = pred_boxes
-        pred_boxes = self.decode_prediction(obj_preds, class_preds, box_preds)
-        obj_grid, class_grid, box_grid = gt_boxes
-        gt_boxes = self.extract_gt_boxes(obj_grid, class_grid, box_grid)
+        pred_boxes = self.decode_prediction_fpn(pred_boxes)
+        gt_boxes = self.extract_gt_boxes_fpn(gt_boxes)
         results_by_class = {}
         for class_id in range(self.num_classes):
             results_by_class[class_id] = {'preds': [], 'num_gts': 0}
@@ -153,3 +186,6 @@ class DetectionMetrics:
             aps.append(ap)
         map_score = sum(aps) / len(aps) if len(aps) > 0 else 0
         return map_score
+
+
+
