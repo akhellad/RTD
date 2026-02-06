@@ -3,7 +3,6 @@ import json
 from torch.utils.data import Dataset
 import torch
 import matplotlib 
-matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import cv2
@@ -67,10 +66,25 @@ class COCODataset(Dataset):
         y_scale = target_resize / y_
         x_scale = target_resize / x_
         scale_tensor = torch.tensor([x_scale, y_scale, x_scale, y_scale])
+        valid_boxes = []
+        valid_labels = []
+        for i, box in enumerate(bbox):
+            x, y, w, h = box
+            if w > 1 and h > 1:
+                valid_boxes.append(box)
+                valid_labels.append(label[i])
+
+        bbox = valid_boxes
+        label = valid_labels
         if self.transform:
             transformed = self.transform(image=img, bboxes=bbox, labels=label)
             img = transformed['image']
             bbox = transformed['bboxes']
+            label = transformed['labels']
+        if len(bbox) == 0:
+            img = cv2.resize(img, (target_resize, target_resize))
+            img = torch.from_numpy(img).permute(2, 0, 1) / 255
+            return img, objectness_grid, class_grid, box_grid
         label = torch.tensor(label)
         img = cv2.resize(img, (target_resize, target_resize))
         bbox = torch.tensor(bbox) * scale_tensor
