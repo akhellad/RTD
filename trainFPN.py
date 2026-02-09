@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import json
 
 class Trainer: 
-    def __init__(self, model, train_loader, val_loader, save_dir="./models"):
+    def __init__(self, model, train_loader, val_loader, save_dir="./models", resume_from=None):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = model.to(self.device)
         self.criterion = DetectionLossFPN(80).to(self.device)
@@ -27,6 +27,16 @@ class Trainer:
             'val': {}
         }
         self.metrics = DetectionMetricsFPN(80)
+        self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', patience=3, factor=0.5)
+        self.start_epoch = 0
+        if resume_from is not None: 
+            checkpoint = torch.load(resume_from)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            self.best_loss = checkpoint['best_loss']
+            self.history = checkpoint['history']
+            self.start_epoch = checkpoint['epoch'] + 1
     
     def _save_plot_history(self, history, save=False):
         epochs = list(history['train'].keys())
@@ -40,6 +50,19 @@ class Trainer:
         if save:
             plt.savefig(os.path.join(self.save_dir, 'metrics_results.png'))
         plt.show()
+    
+    def _save_model(self, epoch, val_loss, filepath):
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict(),
+            'best_loss': self.best_loss,
+            'history': self.history,
+            'val_loss': val_loss
+        }
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        torch.save(checkpoint, filepath)
     
     def _train_epoch(self):
         self.model.train()
@@ -139,20 +162,19 @@ class Trainer:
         
         return losses, None
     
-    def train(self, epochs):
+    def train(self, epochs, resume=False):
         print(f"Device : {self.device}")
         print(f"Model on GPU: {next(self.model.parameters()).is_cuda}")
-        scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', patience=3, factor=0.5)
         try:
-            for epoch in range(epochs):
+            for epoch in range(self.start_epoch, epochs):
                 train_obj_loss, train_class_loss, train_box_loss, train_losses = self._train_epoch()
                 val_losses = self._validate(compute_map=(epoch % 5 == 0))
                 if isinstance(val_losses, tuple):
                     (val_obj_loss, val_class_loss, val_box_loss, val_loss), map_score = val_losses
                     if map_score is not None:
                         print(f"mAP@0.5: {map_score:.4f}")
-                scheduler.step(val_loss)
-                print(f"Learning rate : {scheduler.get_last_lr()[0]}")
+                self.scheduler.step(val_loss)
+                print(f"Learning rate : {self.scheduler.get_last_lr()[0]}")
                 self.history['train'][epoch] = {'obj_loss': train_obj_loss, 'class_loss': train_class_loss, 'box_loss': train_box_loss, 'loss': train_losses}
                 self.history['val'][epoch] = {'obj_loss': val_obj_loss, 'class_loss': val_class_loss, 'box_loss': val_box_loss, 'loss': val_loss}
 
@@ -163,7 +185,7 @@ class Trainer:
                 print(f"Val - Loss : {val_loss} | Obj : {val_obj_loss} | Class : {val_class_loss} | Box : {val_box_loss}")
 
                 if val_loss < self.best_loss:
-                    torch.save(self.model.state_dict(), self.best_model_path)
+                    self._save_model(epoch, val_loss, self.best_model_path)
                     self.best_loss = val_loss
                     print(f"Meilleur modèle sauvegardé ! (Val Loss : {val_loss})")
         except KeyboardInterrupt:
