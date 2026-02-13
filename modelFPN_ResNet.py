@@ -43,17 +43,41 @@ class FPN_ResNet(nn.Module):
 class DetectionHead(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
+        self.shared = nn.Sequential(
+            nn.Conv2d(256, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU()
+        )
+        
         self.objectness = nn.Sequential(
-            nn.Conv2d(256, 1, 1),
+            nn.Conv2d(256, 128, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(128, 1, 1),
             nn.Sigmoid()
         )
+        
         self.classificator = nn.Sequential(
-            nn.Conv2d(256, num_classes, 1),
+            nn.Conv2d(256, 128, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(128, num_classes, 1),
             nn.Sigmoid()
         )
-        self.boxregressor = nn.Conv2d(256, 4, 1)
+        
+        self.boxregressor = nn.Sequential(
+            nn.Conv2d(256, 128, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(128, 4, 1)
+        )
 
     def forward(self, x):
+        x = self.shared(x)
+        
         objectness = self.objectness(x)
         classification = self.classificator(x)
         boxes = self.boxregressor(x)
