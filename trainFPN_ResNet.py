@@ -1,6 +1,7 @@
 from coco_dataset_FPN import COCODatasetFPN
 from modelFPN_ResNet import DetectionLossFPN, ObjectDetectorFPN
 from metricsFPN import DetectionMetricsFPN
+from config import ANCHORS
 from torch.optim import Adam, lr_scheduler
 import os
 import torch
@@ -26,7 +27,7 @@ class Trainer:
             'train': {},
             'val': {}
         }
-        self.metrics = DetectionMetricsFPN(80)
+        self.metrics = DetectionMetricsFPN(80, ANCHORS)
         self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', patience=3, factor=0.5)
         self.start_epoch = 0
         if resume_from is not None: 
@@ -198,8 +199,8 @@ class Trainer:
             print("Historique sauvegardé !")
 
 if __name__ == "__main__":
-    train_dataset = COCODatasetFPN('train_labels.json', 'images')
-    val_dataset = COCODatasetFPN('val_labels.json', 'images', train=False)
+    train_dataset = COCODatasetFPN('train_labels.json', 'images', ANCHORS)
+    val_dataset   = COCODatasetFPN('val_labels.json', 'images', ANCHORS, train=False)
     
     train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=4, pin_memory=True)
