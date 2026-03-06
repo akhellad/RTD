@@ -1,8 +1,3 @@
-# --- Google Colab setup ---
-# !pip install wandb albumentations
-# import wandb
-# wandb.login(key="YOUR_API_KEY")
-
 import copy
 import os
 import json
@@ -38,6 +33,9 @@ class ModelEMA:
         with torch.no_grad():
             for ema_p, model_p in zip(self.ema.parameters(), model.parameters()):
                 ema_p.data.mul_(self.decay).add_(model_p.data, alpha=1 - self.decay)
+            for ema_b, model_b in zip(self.ema.buffers(), model.buffers()):
+                if ema_b.dtype.is_floating_point:
+                    ema_b.data.mul_(self.decay).add_(model_b.data, alpha=1 - self.decay)
 
     def state_dict(self):
         return self.ema.state_dict()
@@ -57,7 +55,6 @@ class Trainer:
         self.epochs = epochs
         self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
-        self.best_map = 0.0
         self.best_map = 0.0
         self.best_model_path = os.path.join(self.save_dir, 'best_model.pt')
         self.history = {'train': {}, 'val': {}}
@@ -79,11 +76,10 @@ class Trainer:
         self.use_wandb = use_wandb and HAS_WANDB
 
         if resume_from is not None:
-            checkpoint = torch.load(resume_from, map_location=self.device)
+            checkpoint = torch.load(resume_from, map_location=self.device, weights_only=False)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-            self.best_map = checkpoint['best_map']
             self.best_map = checkpoint.get('best_map', 0.0)
             self.history = checkpoint['history']
             self.start_epoch = checkpoint['epoch'] + 1
@@ -218,7 +214,7 @@ class Trainer:
             for epoch in range(self.start_epoch, self.epochs):
                 train_obj, train_cls, train_box, train_loss = self._train_epoch()
                 (val_obj, val_cls, val_box, val_loss), map_score = self._validate(
-                    compute_map=True
+                    compute_map=(epoch % 3 == 0 or epoch >= self.epochs - 5)
                 )
 
                 current_lr = self.optimizer.param_groups[0]['lr']
@@ -270,6 +266,9 @@ class Trainer:
 
 
 if __name__ == "__main__":
+    torch.backends.cudnn.benchmark = True
+    torch.set_float32_matmul_precision('medium')
+
     EPOCHS = 100
     BATCH_SIZE = 64
 
@@ -278,11 +277,11 @@ if __name__ == "__main__":
 
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True,
-        num_workers=4, pin_memory=True,
+        num_workers=4, pin_memory=True, persistent_workers=True,
     )
     val_loader = DataLoader(
         val_dataset, batch_size=BATCH_SIZE, shuffle=False,
-        num_workers=4, pin_memory=True,
+        num_workers=4, pin_memory=True, persistent_workers=True,
     )
 
     model = ObjectDetectorFPN(80)
