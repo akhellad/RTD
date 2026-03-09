@@ -60,7 +60,7 @@ def run(image_path, checkpoint_path, output_path, conf_threshold):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", type=str, required=True)
-    parser.add_argument("--checkpoint", type=str, default="best_model2.pt")
+    parser.add_argument("--checkpoint", type=str, default="best_model.pt")
     parser.add_argument("--output", type=str, default="prediction.jpg")
     parser.add_argument("--conf", type=float, default=0.4)
     args = parser.parse_args()
