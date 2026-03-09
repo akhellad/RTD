@@ -18,7 +18,7 @@ The approach was iterative: start simple, measure, identify bottlenecks, and imp
 
 | | V1 | V2 | V3 |
 |---|---|---|---|
-| **Backbone** | Custom (5 blocs Conv+BN) | ResNet50 (pretrained) | ResNet50 (pretrained) |
+| **Backbone** | Custom (5 blocs Conv+BN) | Custom (5 blocs Conv+BN) | ResNet50 (pretrained) |
 | **Neck** | — | FPN | FPN |
 | **Input** | 224x224 | 224x224 | 416x416 |
 | **Grid** | 7x7 | 28x28 / 14x14 / 7x7 | 52x52 / 26x26 / 13x13 |
