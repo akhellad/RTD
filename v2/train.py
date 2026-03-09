@@ -1,6 +1,6 @@
-from coco_dataset_FPN import COCODatasetFPN
-from modelFPN import DetectionLossFPN, ObjectDetectorFPN
-from metricsFPN import DetectionMetricsFPN
+from coco_dataset import COCODatasetFPN
+from model import DetectionLossFPN, ObjectDetectorFPN
+from metrics import DetectionMetricsFPN
 from torch.optim import Adam, lr_scheduler
 import os
 import torch

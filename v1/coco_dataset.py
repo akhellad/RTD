@@ -34,12 +34,6 @@ class COCODataset(Dataset):
                 A.RandomBrightnessContrast(p=0.3),
                 A.HueSaturationValue(p=0.3),
                 A.GaussianBlur(p=0.2)
-                # A.Affine(
-                #     translate_percent={"x": (-0.0625, 0.0625), "y": (-0.0625, 0.0625)},
-                #     scale=(0.9, 1.1),
-                #     rotate=(-15, 15),
-                #     p=0.3
-                # )
             ], bbox_params=A.BboxParams(format='coco', label_fields=['labels']))
         else:
             self.transform = None

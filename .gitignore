@@ -5,3 +5,4 @@ archive.zip
 venv/
 models/
 *.json
+*.pt 
